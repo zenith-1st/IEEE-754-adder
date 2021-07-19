@@ -1,0 +1,168 @@
+module FPADD (CLK, St, done, ovf, unf, FPinput, FPsum);
+input CLK;
+input St;
+output done;
+output ovf;
+output unf;
+input[15:0] FPinput;
+output[15:0] FPsum;
+reg done;
+reg ovf;
+reg unf;
+reg[12:0] F1;	//fraction of in1(10+2)
+reg[12:0] F2;	//fraction of in2(10+2)
+reg[4:0] E1;	//exp of in1
+reg[4:0] E2;	//exp of in2
+reg S1;  //in1 sign bit
+reg S2;	//in2 sign bit
+wire FV;
+wire FU;
+wire[14:0] F1comp;
+wire[14:0] F2comp;
+wire[14:0] Addout;
+wire[14:0] Fsum;
+reg[2:0] State;
+
+initial
+begin
+State = 0;
+done = 0;
+ovf = 0;
+unf = 0;
+S1 = 0;
+S2 = 0;
+F1 = 0;
+F2 = 0;
+E1 = 0;
+E2 = 0;
+end
+
+assign F1comp = (S1 == 1'b1) ? ~({2'b00, F1}) + 1 : {2'b00, F1} ;
+assign F2comp = (S2 == 1'b1) ? ~({2'b00, F2}) + 1 : {2'b00, F2} ;
+assign Addout = F1comp + F2comp ;
+assign Fsum = ((Addout[14]) == 1'b0) ? Addout : ~Addout + 1 ;
+assign FV = Fsum[14] ^ Fsum[13] ;
+assign FU = ~F1[12] ;
+assign FPsum = {S1, E1, F1[11:2]} ;
+
+
+
+always @(posedge CLK)
+begin
+
+case (State)
+0 :
+	begin
+	if (St == 1'b1)
+	begin
+	E1 <= FPinput[14:10] ;
+	S1 <= FPinput[15] ;
+	F1[12:0] <= {FPinput[9:0], 2'b00} ;
+	if (FPinput == 0)
+	begin
+	F1[12] <= 1'b0 ;
+	end
+	else
+	begin
+	F1[12] <= 1'b1 ;
+	end
+	done <= 1'b0 ;
+	ovf <= 1'b0 ;
+	unf <= 1'b0 ;
+	State <= 1 ;
+	end
+	end
+1 :
+	begin
+	E2 <= FPinput[14:10] ;
+	S2 <= FPinput[15] ;
+	F2[12:0] <= {FPinput[9:0], 2'b00} ;
+	if (FPinput == 0)
+	begin
+	F2[12] <= 1'b0 ;
+	end
+	else
+	begin
+	F2[12] <= 1'b1 ;
+	end
+	State <= 2 ;
+	end
+2 :
+	begin
+	if (F1 == 0 | F2 == 0)
+	begin
+	State <= 3 ;
+	end
+	else
+	begin
+	if (E1 == E2)
+	begin
+	State <= 3 ;
+	end
+	else if (E1 < E2)
+	begin
+	F1 <= {1'b0, F1[12:1]} ;
+	E1 <= E1 + 1 ;
+	end
+	else
+	begin
+	F2 <= {1'b0, F2[12:1]} ;
+	E2 <= E2 + 1 ;
+	end
+	end
+	end
+3 :
+	begin
+	S1 <= Addout[14] ;
+	if (FV == 1'b0)
+	begin
+	F1 <= Fsum[12:0] ;
+	end
+	else
+	begin
+	F1 <= Fsum[13:1] ;
+	E1 <= E1 + 1 ;
+	end
+	State <= 4 ;
+	end
+4 :
+	begin
+	if (F1 == 0)
+	begin
+	E1 <= 8'b00000000 ;
+	State <= 6 ;
+	end
+	else
+	begin
+	State <= 5 ;
+	end
+	end
+5 :
+	begin
+	if (E1 == 0)
+	begin
+	unf <= 1'b1 ;
+	State <= 6 ;
+	end
+	else if (FU == 1'b0)
+	begin
+	State <= 6 ;
+	end
+	else
+	begin
+	F1 <= {F1[11:0], 1'b0} ;
+	E1 <= E1 - 1 ;
+	end
+	end
+6 :
+	begin
+	if (E1 == 255)
+	begin
+	ovf <= 1'b1 ;
+	end
+	done <= 1'b1 ;
+	State <= 0 ;
+	end
+	endcase
+	end
+endmodule
